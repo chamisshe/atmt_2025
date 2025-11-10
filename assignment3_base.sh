@@ -37,11 +37,10 @@ python train.py \
     --source-lang cz \
     --target-lang en \
     --batch-size 64 \
-    --arch gqa-transformer \
-    --query-groups 2\
+    --arch transformer \
     --max-epoch 7 \
-    --log-file cz-en/logs/gqa/train.log \
-    --save-dir cz-en/checkpoints/gqa/ \
+    --log-file cz-en/logs/base/train.log \
+    --save-dir cz-en/checkpoints/base/ \
     --epoch-checkpoints \
     --ignore-checkpoints \
     --encoder-dropout 0.1 \
@@ -60,8 +59,8 @@ python translate.py \
     --input ~/shares/cz-en/data/raw/test.cz \
     --src-tokenizer cz-en/tokenizers/cz-bpe-8000.model \
     --tgt-tokenizer cz-en/tokenizers/en-bpe-8000.model \
-    --checkpoint-path cz-en/checkpoints/gqa/checkpoint_best.pt \
-    --output cz-en/gqa/output.txt \
+    --checkpoint-path cz-en/checkpoints/base/checkpoint_best.pt \
+    --output cz-en/base/output.txt \
     --bleu \
     --reference ~/shares/cz-en/data/raw/test.en \
     --max-len 300
@@ -76,11 +75,10 @@ python train.py \
     --source-lang cz \
     --target-lang en \
     --batch-size 64 \
-    --arch gqa-transformer \
-    --query-groups 2\
+    --arch transformer \
     --max-epoch 3 \
-    --log-file cz-en/logs/gqa/refine.log \
-    --save-dir cz-en/checkpoints/gqa/ \
+    --log-file cz-en/logs/base/refine.log \
+    --save-dir cz-en/checkpoints/base/ \
     --restore-file checkpoint_last.pt \
     --epoch-checkpoints \
     --average-n-checkpoints 3 \
@@ -100,8 +98,8 @@ python translate.py \
     --input ~/shares/cz-en/data/raw/test.cz \
     --src-tokenizer cz-en/tokenizers/cz-bpe-8000.model \
     --tgt-tokenizer cz-en/tokenizers/en-bpe-8000.model \
-    --checkpoint-path cz-en/checkpoints/gqa/checkpoint_averaged.pt \
-    --output cz-en/gqa/output_refine.txt \
+    --checkpoint-path cz-en/checkpoints/base/checkpoint_averaged.pt \
+    --output cz-en/base/output_refine.txt \
     --bleu \
     --reference ~/shares/cz-en/data/raw/test.en \
     --max-len 300
