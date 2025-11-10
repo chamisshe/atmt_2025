@@ -1,3 +1,7 @@
+from seq2seq.models import ARCH_MODEL_REGISTRY, ARCH_CONFIG_REGISTRY
+from seq2seq.decode import decode
+from seq2seq import models, utils
+from seq2seq.data.dataset import Seq2SeqDataset, BatchSampler
 import os
 import random
 import time
@@ -15,10 +19,6 @@ import torch.nn as nn
 import sys
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from seq2seq.data.dataset import Seq2SeqDataset, BatchSampler
-from seq2seq import models, utils
-from seq2seq.decode import decode
-from seq2seq.models import ARCH_MODEL_REGISTRY, ARCH_CONFIG_REGISTRY
 
 SEED = random.randint(1, 1_000_000_000)
 
@@ -37,7 +37,7 @@ def get_args():
     parser.add_argument('--max-tokens', default=None, type=int, help='maximum number of tokens in a batch')
     parser.add_argument('--batch-size', default=1, type=int, help='maximum number of sentences in a batch')
     parser.add_argument('--train-on-tiny', action='store_true', help='train model on a tiny dataset')
-    
+
     # # Add model arguments
     parser.add_argument('--arch', default='transformer', choices=ARCH_MODEL_REGISTRY.keys(), help='model architecture')
 
@@ -56,6 +56,7 @@ def get_args():
     parser.add_argument('--no-save', action='store_true', help='don\'t save models or checkpoints')
     parser.add_argument('--epoch-checkpoints', action='store_true', help='store all epoch checkpoints')
     parser.add_argument('--ignore-checkpoints', action='store_true', help='don\'t load any previous checkpoint')
+    parser.add_argument('--average-n-checkpoints', type=int, default=None, help='average the last n checkpoints')
     # Parse twice as model arguments are not known the first time
     args, _ = parser.parse_known_args()
     model_parser = parser.add_argument_group(argument_default=argparse.SUPPRESS)
@@ -63,7 +64,6 @@ def get_args():
     args = parser.parse_args()
     ARCH_CONFIG_REGISTRY[args.arch](args)
     return args
-
 
 
 def main(args):
@@ -97,8 +97,7 @@ def main(args):
         criterion = criterion.cuda()
 
     device = torch.device("cuda" if args.cuda else "cpu")
-    
-    
+
     # Instantiate optimizer and learning rate scheduler
     optimizer = torch.optim.Adam(model.parameters(), args.lr)
 
@@ -107,13 +106,13 @@ def main(args):
         # Load last checkpoint if one exists
         state_dict = utils.load_checkpoint(args, model, optimizer)  # lr_scheduler
     last_epoch = state_dict['last_epoch'] if state_dict is not None else -1
-    
+
     # Track validation performance for early stopping
     bad_epochs = 0
     best_validate = float('inf')
 
     make_batch = utils.make_batch_input(device=device, pad=src_tokenizer.pad_id(), max_seq_len=args.max_seq_len)
-    
+
     for epoch in range(last_epoch + 1, args.max_epoch):
         train_loader = \
             torch.utils.data.DataLoader(train_dataset, num_workers=1, collate_fn=train_dataset.collater,
@@ -127,7 +126,7 @@ def main(args):
         stats['batch_size'] = 0
         stats['grad_norm'] = 0
         stats['clip'] = 0
-        
+
         # Display progress
         progress_bar = tqdm(train_loader, desc='| Epoch {:03d}'.format(epoch), leave=False, disable=False,
                             # update progressbar every 2 seconds
@@ -142,8 +141,8 @@ def main(args):
                 continue
             model.train()
             src, trg_in, trg_out, src_pad_mask, trg_pad_mask = make_batch(x=sample['src_tokens'],
-                                                                           y=sample['tgt_tokens'])
-            
+                                                                          y=sample['tgt_tokens'])
+
             output = model(src, src_pad_mask, trg_in, trg_pad_mask).to(device)
 
             loss = \
@@ -151,7 +150,8 @@ def main(args):
 
             if torch.isnan(loss).any():
                 logging.warning('Loss is NAN!')
-                print(src_tokenizer.Decode(sample['src_tokens'].tolist()[0]), '---', tgt_tokenizer.Decode(sample['tgt_tokens'].tolist()[0]))
+                print(src_tokenizer.Decode(sample['src_tokens'].tolist()[0]),
+                      '---', tgt_tokenizer.Decode(sample['tgt_tokens'].tolist()[0]))
                 # print()
                 # import pdb;pdb.set_trace()
 
@@ -172,17 +172,17 @@ def main(args):
             progress_bar.set_postfix({key: '{:.4g}'.format(value / (i + 1)) for key, value in stats.items()},
                                      refresh=False)
         # measure time to complete epoch (training only)
-        epoch_time = time.perf_counter()- start_time
-        
+        epoch_time = time.perf_counter() - start_time
+
         logging.info('Epoch {:03d}: {}'.format(epoch, ' | '.join(key + ' {:.4g}'.format(
             value / len(progress_bar)) for key, value in stats.items())))
         logging.info(f'Time to complete epoch {epoch:03d} (training only): {epoch_time:.2f} seconds')
 
-
         # Calculate validation loss
-        valid_perplexity = validate(args, model, criterion, valid_dataset, epoch, batch_fn=make_batch, src_tokenizer=src_tokenizer, tgt_tokenizer=tgt_tokenizer)
+        valid_perplexity = validate(args, model, criterion, valid_dataset, epoch, batch_fn=make_batch,
+                                    src_tokenizer=src_tokenizer, tgt_tokenizer=tgt_tokenizer)
         model.train()
-        
+
         # Save checkpoints
         if epoch % args.save_interval == 0:
             utils.save_checkpoint(args, model, optimizer, epoch, valid_perplexity)  # lr_scheduler
@@ -214,6 +214,26 @@ def main(args):
 
     logging.info('Final Test Set Results: BLEU {:.2f}'.format(bleu_score))
 
+    # Checkpoint average evaluation on the test set
+    if args.average_n_checkpoints:
+        test_dataset = load_data(split='test')
+        logging.info('Making the average model for final evaluation on the test set')
+        utils.average_checkpoints(args)
+        average_filename = 'checkpoint_averaged_last{}.pt'.format(args.average_n_checkpoints)
+        utils.load_given_checkpoint(args, model, optimizer, average_filename)
+
+        # Evaluate the model on the test set
+        bleu_score, all_hypotheses, all_references = evaluate(
+            args,
+            model,
+            test_dataset,
+            batch_fn=make_batch,
+            src_tokenizer=src_tokenizer,
+            tgt_tokenizer=tgt_tokenizer,
+        )
+
+        logging.info('Checkpoint Average Test Set Results: BLEU {:.2f}'.format(bleu_score))
+
 
 def validate(args, model, criterion, valid_dataset, epoch,
              batch_fn: callable,
@@ -235,7 +255,7 @@ def validate(args, model, criterion, valid_dataset, epoch,
     all_references = []  # list of reference strings
     all_hypotheses = []  # list of hypothesis strings
 
-    progress_bar = tqdm(valid_loader, desc='| Validating Epoch {:03d}'.format(epoch), leave=False, disable=False, 
+    progress_bar = tqdm(valid_loader, desc='| Validating Epoch {:03d}'.format(epoch), leave=False, disable=False,
                         # update progressbar every 2 seconds
                         mininterval=2.0)
     # Iterate over the validation set
@@ -250,7 +270,7 @@ def validate(args, model, criterion, valid_dataset, epoch,
             # Compute loss (with teacher forcing)
             output = model(src_tokens, src_pad_mask, trg_in, trg_pad_mask).to(device)
             loss = criterion(output.view(-1, output.size(-1)), trg_out.view(-1))
-            
+
             # Decoding for BLEU (no teacher forcing)
             predicted_tokens = decode(model=model,
                                       src_tokens=src_tokens,
@@ -293,14 +313,14 @@ def validate(args, model, criterion, valid_dataset, epoch,
     )
 
     return perplexity
-    
+
 
 def evaluate(args, model, test_dataset,
-    batch_fn: callable,
-    src_tokenizer: spm.SentencePieceProcessor,
-    tgt_tokenizer: spm.SentencePieceProcessor,
-    decode_kwargs: dict = None,
-):
+             batch_fn: callable,
+             src_tokenizer: spm.SentencePieceProcessor,
+             tgt_tokenizer: spm.SentencePieceProcessor,
+             decode_kwargs: dict = None,
+             ):
     """Evaluates the model on a test set using sacrebleu.
        decode_fn: function that generates translations.
        decode_kwargs: dict of extra parameters for decode_fn.
@@ -310,7 +330,7 @@ def evaluate(args, model, test_dataset,
         num_workers=1,
         collate_fn=test_dataset.collater,
         # batch_size != 1 may mess things up with decoding
-        batch_sampler=BatchSampler(test_dataset, args.max_tokens, batch_size=1, 
+        batch_sampler=BatchSampler(test_dataset, args.max_tokens, batch_size=1,
                                    num_shards=1, shard_id=0, shuffle=False, seed=SEED),
     )
 
@@ -323,7 +343,7 @@ def evaluate(args, model, test_dataset,
 
     progress_bar = tqdm(test_loader, desc='| Evaluating', leave=False, disable=False,
                         # update progressbar every 2 seconds
-                        mininterval=2.0)   
+                        mininterval=2.0)
     # Iterate over test set
     for i, sample in enumerate(progress_bar):
         if args.cuda:
@@ -336,20 +356,20 @@ def evaluate(args, model, test_dataset,
                 x=sample["src_tokens"], y=sample["tgt_tokens"]
             )
 
-            #-----------------------------------------
+            # -----------------------------------------
             # Decode without teacher forcing
             prediction = decode(model=model,
-                                      src_tokens=src_tokens,
-                                      src_pad_mask=src_pad_mask,
-                                      max_out_len=args.max_length,
-                                      tgt_tokenizer=tgt_tokenizer,
-                                      args=args,
-                                      device=device)
-            #----------------------------------------
+                                src_tokens=src_tokens,
+                                src_pad_mask=src_pad_mask,
+                                max_out_len=args.max_length,
+                                tgt_tokenizer=tgt_tokenizer,
+                                args=args,
+                                device=device)
+            # ----------------------------------------
 
         # Collect hypotheses and references
         for ref, hyp in zip(sample["tgt_tokens"], prediction):
-        # the for-loop is technically redundant since batch_size=1, but kept for clarity
+            # the for-loop is technically redundant since batch_size=1, but kept for clarity
             ref_sentence = tgt_tokenizer.Decode(ref.tolist())
             hyp_sentence = tgt_tokenizer.Decode(hyp)
 
@@ -363,7 +383,6 @@ def evaluate(args, model, test_dataset,
     logging.info("Test set results: BLEU {:.3f}".format(bleu_score))
 
     return bleu_score, all_hypotheses, all_references
-
 
 
 if __name__ == '__main__':

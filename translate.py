@@ -1,3 +1,7 @@
+from seq2seq.data.dataset import Seq2SeqDataset, BatchSampler
+from seq2seq import models, utils
+from seq2seq.data.tokenizer import BPETokenizer
+from seq2seq.decode import decode
 import os
 import logging
 import argparse
@@ -13,10 +17,6 @@ from torch.serialization import default_restore_location
 import sys
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from seq2seq.decode import decode
-from seq2seq.data.tokenizer import BPETokenizer
-from seq2seq import models, utils
-from seq2seq.data.dataset import Seq2SeqDataset, BatchSampler
 
 def decode_to_string(tokenizer, array):
     """
@@ -24,6 +24,7 @@ def decode_to_string(tokenizer, array):
     if torch.is_tensor(array) and array.dim() == 2:
         return '\n'.join(decode_to_string(tokenizer, t) for t in array)
     return tokenizer.Decode(array.tolist())
+
 
 def get_args():
     """ Defines generation-specific hyper-parameters. """
@@ -39,11 +40,12 @@ def get_args():
     parser.add_argument('--batch-size', default=1, type=int, help='maximum number of sentences in a batch')
     parser.add_argument('--output', required=True, type=str, help='path to the output file destination')
     parser.add_argument('--max-len', default=128, type=int, help='maximum length of generated sequence')
-    
+
     # BLEU computation arguments
     parser.add_argument('--bleu', action='store_true', help='If set, compute BLEU score after translation')
-    parser.add_argument('--reference', type=str, help='Path to the reference file (one sentence per line, required if --bleu is set)')
-    
+    parser.add_argument('--reference', type=str,
+                        help='Path to the reference file (one sentence per line, required if --bleu is set)')
+
     return parser.parse_args()
 
 
@@ -51,26 +53,24 @@ def main(args):
     """ Main translation function' """
     # Load arguments from checkpoint
     torch.manual_seed(args.seed)
-    state_dict = torch.load(args.checkpoint_path, map_location=lambda s, l: default_restore_location(s, 'cpu'), weights_only=False)
+    state_dict = torch.load(args.checkpoint_path, map_location=lambda s,
+                            l: default_restore_location(s, 'cpu'), weights_only=False)
     args_loaded = argparse.Namespace(**{**vars(state_dict['args']), **vars(args)})
     args = args_loaded
     utils.init_logging(args)
-
 
     src_tokenizer = utils.load_tokenizer(args.src_tokenizer)
     tgt_tokenizer = utils.load_tokenizer(args.tgt_tokenizer)
     # make_batch = utils.make_batch_input(device='cuda' if args.cuda else 'cpu',
     #                                     pad=src_tokenizer.pad_id(),
     #                                     max_seq_len=args.max_len)
-    
-    
-
 
     # batch input sentences
+
     def batch_iter(lst, batch_size):
         for i in range(0, len(lst), batch_size):
             yield lst[i:i+batch_size]
-    
+
     # Build model and criterion
     model = models.build_model(args, src_tokenizer, tgt_tokenizer)
     if args.cuda:
@@ -88,7 +88,7 @@ def main(args):
     # trim to max_len
     max_seq_len = min(model.encoder.pos_embed.size(1), args.max_len)
     # src_encoded = [s[:max_seq_len] for s in src_encoded]
-    src_encoded = [s if len(s)<=max_seq_len else s[:max_seq_len] for s in src_encoded]
+    src_encoded = [s if len(s) <= max_seq_len else s[:max_seq_len] for s in src_encoded]
 
     DEVICE = 'cuda' if args.cuda else 'cpu'
     PAD = src_tokenizer.pad_id()
@@ -96,8 +96,6 @@ def main(args):
     EOS = tgt_tokenizer.eos_id()
     print(f'PAD ID: {PAD}, BOS ID: {BOS}, EOS ID: {EOS}\n\
           PAD token: "{src_tokenizer.IdToPiece(PAD)}", BOS token: "{tgt_tokenizer.IdToPiece(BOS)}", EOS token: "{tgt_tokenizer.IdToPiece(EOS)}"')
-
-    
 
     # Clear output file
     if args.output is not None:
@@ -123,15 +121,13 @@ def main(args):
         ids = postprocess_ids(sentence_ids, PAD, BOS, EOS)
         # Use tokenizer.Decode to produce properly detokenized text
         return tokenizer.Decode(ids)
-    
 
     translations = []
     start_time = time.perf_counter()
 
     make_batch = utils.make_batch_input(device=DEVICE, pad=src_tokenizer.pad_id(), max_seq_len=args.max_len)
 
-
-    #------------------------------------------
+    # ------------------------------------------
     # Translation loop (batched)
     for batch in tqdm(batch_iter(src_encoded, args.batch_size)):
         with torch.no_grad():
@@ -150,16 +146,16 @@ def main(args):
             # Use make_batch to get masks (trg_in, trg_out are not used for inference)
             src_tokens, trg_in, trg_out, src_pad_mask, trg_pad_mask = make_batch(src_tokens, dummy_y)
 
-            #-----------------------------------------
+            # -----------------------------------------
             # Decode without teacher forcing
             prediction = decode(model=model,
-                                      src_tokens=src_tokens,
-                                      src_pad_mask=src_pad_mask,
-                                      max_out_len=args.max_len,
-                                      tgt_tokenizer=tgt_tokenizer,
-                                      args=args,
-                                      device=DEVICE)
-            #----------------------------------------
+                                src_tokens=src_tokens,
+                                src_pad_mask=src_pad_mask,
+                                max_out_len=args.max_len,
+                                tgt_tokenizer=tgt_tokenizer,
+                                args=args,
+                                device=DEVICE)
+            # ----------------------------------------
 
         # Remove BOS and decode each sentence
         for sent in prediction:
@@ -168,7 +164,7 @@ def main(args):
             if args.output is not None:
                 with open(args.output, 'a', encoding="utf-8") as out_file:
                     out_file.write(translation + '\n')
-    #------------------------------------------
+    # ------------------------------------------
     print(f"translations: {translations}")
     logging.info(f'Wrote {len(translations)} lines to {args.output}')
     end_time = time.perf_counter()
@@ -190,5 +186,5 @@ if __name__ == '__main__':
     if getattr(args, 'bleu', False):
         if not args.reference:
             raise ValueError("You must provide --reference when using --bleu.")
-        
+
     main(args)
