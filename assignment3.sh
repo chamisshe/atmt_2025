@@ -39,7 +39,7 @@ python train.py \
     --batch-size 64 \
     --arch gqa-transformer \
     --query-groups 2\
-    --max-epoch 7 \
+    --max-epoch 4 \
     --log-file cz-en/logs/gqa/train.log \
     --save-dir cz-en/checkpoints/gqa/ \
     --epoch-checkpoints \
@@ -53,18 +53,6 @@ python train.py \
     --max-seq-len 300 \
     --n-encoder-layers 3 \
     --n-decoder-layers 3 
-
-# TRANSLATE
-python translate.py \
-    --cuda \
-    --input ~/shares/cz-en/data/raw/test.cz \
-    --src-tokenizer cz-en/tokenizers/cz-bpe-8000.model \
-    --tgt-tokenizer cz-en/tokenizers/en-bpe-8000.model \
-    --checkpoint-path cz-en/checkpoints/gqa/checkpoint_best.pt \
-    --output cz-en/gqa/output.txt \
-    --bleu \
-    --reference ~/shares/cz-en/data/raw/test.en \
-    --max-len 300
 
 
 # REFINE
@@ -94,7 +82,19 @@ python train.py \
     --n-encoder-layers 3 \
     --n-decoder-layers 3 
 
-# TRANSLATE
+# TRANSLATE-Best Model
+python translate.py \
+    --cuda \
+    --input ~/shares/cz-en/data/raw/test.cz \
+    --src-tokenizer cz-en/tokenizers/cz-bpe-8000.model \
+    --tgt-tokenizer cz-en/tokenizers/en-bpe-8000.model \
+    --checkpoint-path cz-en/checkpoints/gqa/checkpoint_best.pt \
+    --output cz-en/gqa/output.txt \
+    --bleu \
+    --reference ~/shares/cz-en/data/raw/test.en \
+    --max-len 300
+
+# TRANSLATE-Averaged Model
 python translate.py \
     --cuda \
     --input ~/shares/cz-en/data/raw/test.cz \
