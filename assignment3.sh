@@ -5,7 +5,7 @@
 #SBATCH --mem=16GB
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus=1
-#SBATCH --output=out_assignment3.out
+#SBATCH --output=out2_assignment3.out
 
 module load gpu
 module load mamba
@@ -29,30 +29,29 @@ python preprocess.py \
     --tgt-model ./cz-en/tokenizers/en-bpe-8000.model
 
 # TRAIN
-python train.py \
-    --cuda \
-    --data cz-en/data/prepared/ \
-    --src-tokenizer cz-en/tokenizers/cz-bpe-8000.model \
-    --tgt-tokenizer cz-en/tokenizers/en-bpe-8000.model \
-    --source-lang cz \
-    --target-lang en \
-    --batch-size 64 \
-    --arch gqa-transformer \
-    --query-groups 2\
-    --max-epoch 4 \
-    --log-file cz-en/logs/gqa/train.log \
-    --save-dir cz-en/checkpoints/gqa/ \
-    --epoch-checkpoints \
-    --ignore-checkpoints \
-    --encoder-dropout 0.1 \
-    --decoder-dropout 0.1 \
-    --dim-embedding 256 \
-    --attention-heads 4 \
-    --dim-feedforward-encoder 1024 \
-    --dim-feedforward-decoder 1024 \
-    --max-seq-len 300 \
-    --n-encoder-layers 3 \
-    --n-decoder-layers 3 
+#python train.py \
+#    --cuda \
+#    --data cz-en/data/prepared/ \
+#    --tgt-tokenizer cz-en/tokenizers/en-bpe-8000.model \
+#    --source-lang cz \
+#    --target-lang en \
+#    --batch-size 64 \
+#    --arch gqa-transformer \
+#    --query-groups 2 \
+#    --max-epoch 4 \
+#    --log-file cz-en/logs/gqa/train.log \
+#    --save-dir cz-en/checkpoints/gqa/ \
+#    --epoch-checkpoints \
+#    --ignore-checkpoints \
+#    --encoder-dropout 0.1 \
+#    --decoder-dropout 0.1 \
+#    --dim-embedding 256 \
+#    --attention-heads 4 \
+#    --dim-feedforward-encoder 1024 \
+#    --dim-feedforward-decoder 1024 \
+#    --max-seq-len 300 \
+#    --n-encoder-layers 3 \
+#    --n-decoder-layers 3 
 
 
 # REFINE
@@ -65,8 +64,8 @@ python train.py \
     --target-lang en \
     --batch-size 64 \
     --arch gqa-transformer \
-    --query-groups 2\
-    --max-epoch 3 \
+    --query-groups 2 \
+    --max-epoch 7 \
     --log-file cz-en/logs/gqa/refine.log \
     --save-dir cz-en/checkpoints/gqa/ \
     --restore-file checkpoint_last.pt \
@@ -89,7 +88,7 @@ python translate.py \
     --src-tokenizer cz-en/tokenizers/cz-bpe-8000.model \
     --tgt-tokenizer cz-en/tokenizers/en-bpe-8000.model \
     --checkpoint-path cz-en/checkpoints/gqa/checkpoint_best.pt \
-    --output cz-en/gqa/output.txt \
+    --output cz-en/outputs/gqa/output.txt \
     --bleu \
     --reference ~/shares/cz-en/data/raw/test.en \
     --max-len 300
@@ -100,8 +99,8 @@ python translate.py \
     --input ~/shares/cz-en/data/raw/test.cz \
     --src-tokenizer cz-en/tokenizers/cz-bpe-8000.model \
     --tgt-tokenizer cz-en/tokenizers/en-bpe-8000.model \
-    --checkpoint-path cz-en/checkpoints/gqa/checkpoint_averaged.pt \
-    --output cz-en/gqa/output_refine.txt \
+    --checkpoint-path cz-en/checkpoints/gqa/checkpoint_averaged_last3.pt \
+    --output cz-en/outputs/gqa/output_refine.txt \
     --bleu \
     --reference ~/shares/cz-en/data/raw/test.en \
     --max-len 300
